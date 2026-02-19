@@ -291,7 +291,7 @@ The egui render loop never blocks. All process I/O runs on the tokio runtime. Co
 
 ## Related projects
 
-- [BitEngine](https://github.com/csd113/BitEngine-Rust) — launch, monitor, and shut down the nodes that BitForge builds
+- [BitEngine](https://github.com/csd113/BitEngine) — launch, monitor, and shut down the nodes that BitForge builds
 - [Bitcoin Core](https://github.com/bitcoin/bitcoin)
 - [Electrs](https://github.com/romanz/electrs)
 
