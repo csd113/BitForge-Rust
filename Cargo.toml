@@ -10,43 +10,43 @@ name = "bitcoin-compiler"
 path = "src/main.rs"
 
 [dependencies]
-# GUI framework — eframe/egui is a pure-Rust immediate-mode GUI.
-# We chose it over Tauri because:
-#   - Zero web-runtime dependency; no Node.js/npm build step
-#   - Metal-accelerated rendering on Apple Silicon via wgpu
-#   - Straightforward tokio integration via shared channels
-#   - .app bundling via cargo-bundle without a second build pipeline
+# GUI framework — eframe/egui immediate-mode GUI with Metal on macOS.
 eframe = { version = "0.28", default-features = false, features = [
     "default_fonts",
-    "wgpu",              # Metal on macOS
+    "wgpu",
     "accesskit",
 ] }
 egui = "0.28"
 
-# Async runtime for background process spawning / HTTP calls
-tokio = { version = "1", features = ["full"] }
+# Async runtime — only the subsystems we actually use.
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "sync",
+    "time",
+    "io-util",
+    "process",
+    "macros",
+] }
 
-# HTTP client for GitHub API (async, json feature for automatic serde)
-reqwest = { version = "0.12", features = ["json"] }
+# HTTP client for GitHub API
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "rustls-tls",
+] }
 
-# Serialization / deserialization
+# Serialization
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+
+# Regex for version parsing (compiled once via LazyLock)
+regex = { version = "1", default-features = false, features = ["std"] }
 
 # Structured error handling
 anyhow = "1"
-thiserror = "1"
 
-# Regex for version parsing
-regex = "1"
-
-# Native file picker and message dialogs (NSOpenPanel on macOS)
+# Native file picker (NSOpenPanel on macOS)
 rfd = "0.14"
 
-# CPU count detection
-num_cpus = "1"
-
-# ── macOS bundle metadata (used by cargo-bundle) ──────────────────────────────
+# ── macOS bundle metadata ──────────────────────────────────────────────────────
 [package.metadata.bundle]
 name           = "Bitcoin Compiler"
 identifier     = "com.bitcoincompiler.app"
@@ -56,9 +56,10 @@ copyright      = "Copyright 2024"
 category       = "developer-tool"
 short_description = "Compile Bitcoin Core and Electrs from source on macOS"
 
-# ── Release profile: optimised + stripped binary ──────────────────────────────
+# ── Release profile ────────────────────────────────────────────────────────────
 [profile.release]
-opt-level = 3
-lto       = "thin"
-strip     = true
-codegen-units = 1
+opt-level     = 3
+lto           = "thin"
+strip         = true
+# codegen-units = 1 is removed: it conflicts with thin LTO and slows
+# incremental builds without measurable benefit alongside thin LTO.

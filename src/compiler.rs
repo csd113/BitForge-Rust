@@ -1,96 +1,91 @@
 // src/compiler.rs
 //
-// Provides `compile_bitcoin` and `compile_electrs`, async functions that
-// mirror the Python `compile_bitcoin_source()` and `compile_electrs_source()`
-// exactly.
-//
-// Both functions:
-//   - git-clone (or update) the source repository
-//   - Set up the build environment (PATH, LLVM, etc.)
-//   - Run the appropriate build tool (CMake ≥ v25, Autotools for older Bitcoin;
-//     `cargo build --release` for Electrs)
-//   - Copy produced binaries into an output directory
-//   - Send real-time log output via `log_tx`
+// `compile_bitcoin` and `compile_electrs`: async functions that clone/update
+// the source repository and drive the appropriate build tool, streaming all
+// output to the UI log in real time.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
+use std::sync::LazyLock;
 
 use anyhow::{Context, Result};
 use regex::Regex;
 
-use crate::messages::AppMessage;
+use crate::messages::{log_msg, AppMessage};
 use crate::process::{probe, run_command};
 
 const BITCOIN_REPO: &str = "https://github.com/bitcoin/bitcoin.git";
 const ELECTRS_REPO: &str = "https://github.com/romanz/electrs.git";
 
+const SEP: &str = "============================================================";
+
+// ─── Static regex — compiled once at first use ────────────────────────────────
+
+static VERSION_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(\d+)\.(\d+)").expect("VERSION_RE is a valid static pattern")
+});
+
 // ─── Public compile functions ─────────────────────────────────────────────────
 
-/// Compile Bitcoin Core from source.
-/// Returns the path of the output binaries directory.
+/// Compile Bitcoin Core from source.  Returns the output binaries directory.
 pub async fn compile_bitcoin(
     version: &str,
     build_dir: &Path,
     cores: usize,
     env: &HashMap<String, String>,
-    log_tx: &Sender<AppMessage>,
-    progress_tx: &Sender<AppMessage>,
+    tx: &Sender<AppMessage>,
 ) -> Result<PathBuf> {
-    let sep = "=".repeat(60);
-    log(log_tx, &format!("\n{sep}\nCOMPILING BITCOIN CORE {version}\n{sep}\n"));
+    log_msg(tx, &format!("\n{SEP}\nCOMPILING BITCOIN CORE {version}\n{SEP}\n"));
 
     let version_clean = version.trim_start_matches('v');
     let src_dir = build_dir.join(format!("bitcoin-{version_clean}"));
 
-    // Ensure the parent build directory exists.
     std::fs::create_dir_all(build_dir).context("Failed to create build directory")?;
 
-    // ── Clone or update source ────────────────────────────────────────────────
-    clone_or_update(&src_dir, build_dir, version, BITCOIN_REPO, log_tx, env).await?;
+    clone_or_update(&src_dir, build_dir, version, BITCOIN_REPO, tx, env).await?;
 
-    let path_preview = env
-        .get("PATH")
-        .map(|p| &p[..p.len().min(150)])
-        .unwrap_or("");
-    log(
-        log_tx,
-        &format!("\nEnvironment setup:\n  PATH: {path_preview}...\n  Building node-only (wallet support disabled)\n"),
-    );
+    if let Some(path_val) = env.get("PATH") {
+        let preview = truncate_str(path_val, 150);
+        log_msg(
+            tx,
+            &format!(
+                "\nEnvironment setup:\n  PATH: {preview}...\n  Building node-only (wallet support disabled)\n"
+            ),
+        );
+    }
 
-    progress_tx.send(AppMessage::Progress(0.3)).ok();
+    tx.send(AppMessage::Progress(0.3)).ok();
 
-    // ── Choose build system ───────────────────────────────────────────────────
     let binaries = if use_cmake(version) {
-        build_bitcoin_cmake(&src_dir, cores, env, log_tx, progress_tx).await?
+        build_bitcoin_cmake(&src_dir, cores, env, tx).await?
     } else {
-        build_bitcoin_autotools(&src_dir, cores, env, log_tx, progress_tx).await?
+        build_bitcoin_autotools(&src_dir, cores, env, tx).await?
     };
 
-    progress_tx.send(AppMessage::Progress(0.9)).ok();
+    tx.send(AppMessage::Progress(0.9)).ok();
 
-    // ── Copy binaries to output dir ───────────────────────────────────────────
     let output_dir = build_dir
         .join("binaries")
         .join(format!("bitcoin-{version_clean}"));
-    let copied = copy_binaries(&output_dir, &binaries, log_tx)?;
+    let copied = copy_binaries(&output_dir, &binaries, tx)?;
 
     if copied.is_empty() {
-        log(
-            log_tx,
-            "⚠️  Warning: No binaries were copied. Checking what exists...\n",
-        );
+        log_msg(tx, "⚠️  Warning: No binaries were copied. Checking what exists...\n");
         for binary in &binaries {
             let mark = if binary.exists() { "✓" } else { "❌" };
-            log(log_tx, &format!("  {mark} {}\n", binary.display()));
+            log_msg(tx, &format!("  {mark} {}\n", binary.display()));
         }
     }
 
-    let n = copied.len();
-    let dir_str = output_dir.display().to_string();
-    log(
-        log_tx,
-        &format!("\n{sep}\n✅ BITCOIN CORE {version} COMPILED SUCCESSFULLY!\n{sep}\n\n📍 Binaries location: {dir_str}\n   Found {n} binaries\n\n"),
+    log_msg(
+        tx,
+        &format!(
+            "\n{SEP}\n✅ BITCOIN CORE {version} COMPILED SUCCESSFULLY!\n{SEP}\n\n\
+             📍 Binaries location: {}\n   Found {} binaries\n\n",
+            output_dir.display(),
+            copied.len()
+        ),
     );
 
     Ok(output_dir)
@@ -102,38 +97,30 @@ pub async fn compile_electrs(
     build_dir: &Path,
     cores: usize,
     env: &HashMap<String, String>,
-    log_tx: &Sender<AppMessage>,
-    progress_tx: &Sender<AppMessage>,
+    tx: &Sender<AppMessage>,
 ) -> Result<PathBuf> {
-    let sep = "=".repeat(60);
-    log(log_tx, &format!("\n{sep}\nCOMPILING ELECTRS {version}\n{sep}\n"));
+    log_msg(tx, &format!("\n{SEP}\nCOMPILING ELECTRS {version}\n{SEP}\n"));
 
-    // ── Verify Rust / Cargo ───────────────────────────────────────────────────
-    log(log_tx, "\n🔍 Verifying Rust installation...\n");
-
-    match probe(&["cargo", "--version"], env) {
-        Some(v) => log(log_tx, &format!("✓ Cargo found: {v}\n")),
+    log_msg(tx, "\n🔍 Verifying Rust installation...\n");
+    match probe(&["cargo", "--version"], env).await {
+        Some(v) => log_msg(tx, &format!("✓ Cargo found: {v}\n")),
         None => {
             let msg = "❌ Cargo not found in PATH!\n\nElectrs requires Rust/Cargo to compile.\n\nPlease:\n1. Click 'Check & Install Dependencies' button\n2. Ensure Rust is installed\n3. Restart this application";
-            log(log_tx, msg);
-            log_tx
-                .send(AppMessage::ShowDialog {
-                    title: "Rust Not Found".into(),
-                    message: msg.into(),
-                    is_error: true,
-                })
-                .ok();
-            return Err(anyhow::anyhow!("Cargo not found - cannot compile Electrs"));
+            log_msg(tx, msg);
+            tx.send(AppMessage::ShowDialog {
+                title:    "Rust Not Found".into(),
+                message:  msg.into(),
+                is_error: true,
+            })
+            .ok();
+            return Err(anyhow::anyhow!("Cargo not found — cannot compile Electrs"));
         }
     }
 
-    if let Some(v) = probe(&["rustc", "--version"], env) {
-        log(log_tx, &format!("✓ Rustc found: {v}\n"));
+    if let Some(v) = probe(&["rustc", "--version"], env).await {
+        log_msg(tx, &format!("✓ Rustc found: {v}\n"));
     } else {
-        log(
-            log_tx,
-            "⚠️  Warning: rustc check failed, but cargo found. Proceeding...\n",
-        );
+        log_msg(tx, "⚠️  Warning: rustc check failed, but cargo found. Proceeding...\n");
     }
 
     let version_clean = version.trim_start_matches('v');
@@ -141,37 +128,34 @@ pub async fn compile_electrs(
 
     std::fs::create_dir_all(build_dir).context("Failed to create build directory")?;
 
-    clone_or_update(&src_dir, build_dir, version, ELECTRS_REPO, log_tx, env).await?;
+    clone_or_update(&src_dir, build_dir, version, ELECTRS_REPO, tx, env).await?;
 
-    log(log_tx, &format!("\n🔧 Building with Cargo ({cores} jobs)...\n"));
+    log_msg(tx, &format!("\n🔧 Building with Cargo ({cores} jobs)...\n"));
 
-    let path_preview = env
-        .get("PATH")
-        .map(|p| &p[..p.len().min(150)])
-        .unwrap_or("");
-    log(
-        log_tx,
-        &format!("Environment details:\n  PATH: {path_preview}...\n"),
-    );
+    if let Some(path_val) = env.get("PATH") {
+        log_msg(
+            tx,
+            &format!("Environment details:\n  PATH: {}...\n", truncate_str(path_val, 150)),
+        );
+    }
     if let Some(lcp) = env.get("LIBCLANG_PATH") {
-        log(log_tx, &format!("  LIBCLANG_PATH: {lcp}\n"));
+        log_msg(tx, &format!("  LIBCLANG_PATH: {lcp}\n"));
     }
 
-    progress_tx.send(AppMessage::Progress(0.3)).ok();
+    tx.send(AppMessage::Progress(0.3)).ok();
 
     run_command(
         &format!("cargo build --release --jobs {cores}"),
         Some(&src_dir),
         env,
-        log_tx,
+        tx,
     )
     .await
     .context("cargo build --release failed")?;
 
-    progress_tx.send(AppMessage::Progress(0.85)).ok();
+    tx.send(AppMessage::Progress(0.85)).ok();
 
-    // ── Copy binary ───────────────────────────────────────────────────────────
-    log(log_tx, "\n📋 Collecting binaries...\n");
+    log_msg(tx, "\n📋 Collecting binaries...\n");
     let binary = src_dir.join("target/release/electrs");
     if !binary.exists() {
         return Err(anyhow::anyhow!(
@@ -183,12 +167,15 @@ pub async fn compile_electrs(
     let output_dir = build_dir
         .join("binaries")
         .join(format!("electrs-{version_clean}"));
-    copy_binaries(&output_dir, &[binary], log_tx)?;
+    copy_binaries(&output_dir, &[binary], tx)?;
 
-    let out_str = output_dir.display().to_string();
-    log(
-        log_tx,
-        &format!("\n{sep}\n✅ ELECTRS {version} COMPILED SUCCESSFULLY!\n{sep}\n\n📍 Binary location: {out_str}/electrs\n\n"),
+    log_msg(
+        tx,
+        &format!(
+            "\n{SEP}\n✅ ELECTRS {version} COMPILED SUCCESSFULLY!\n{SEP}\n\n\
+             📍 Binary location: {}/electrs\n\n",
+            output_dir.display()
+        ),
     );
 
     Ok(output_dir)
@@ -200,32 +187,28 @@ async fn build_bitcoin_cmake(
     src_dir: &Path,
     cores: usize,
     env: &HashMap<String, String>,
-    log_tx: &Sender<AppMessage>,
-    progress_tx: &Sender<AppMessage>,
+    tx: &Sender<AppMessage>,
 ) -> Result<Vec<PathBuf>> {
-    log(log_tx, "\n🔨 Building with CMake...\n");
+    log_msg(tx, "\n🔨 Building with CMake...\n");
+    log_msg(tx, "\n⚙️  Configuring (wallet support disabled)...\n");
 
-    log(
-        log_tx,
-        "\n⚙️  Configuring (wallet support disabled for node-only build)...\n",
-    );
     run_command(
         "cmake -B build -DENABLE_WALLET=OFF -DENABLE_IPC=OFF",
         Some(src_dir),
         env,
-        log_tx,
+        tx,
     )
     .await
     .context("cmake configure failed")?;
 
-    progress_tx.send(AppMessage::Progress(0.5)).ok();
-    log(log_tx, &format!("\n🔧 Compiling with {cores} cores...\n"));
+    tx.send(AppMessage::Progress(0.5)).ok();
+    log_msg(tx, &format!("\n🔧 Compiling with {cores} cores...\n"));
 
     run_command(
         &format!("cmake --build build -j{cores}"),
         Some(src_dir),
         env,
-        log_tx,
+        tx,
     )
     .await
     .context("cmake build failed")?;
@@ -246,33 +229,29 @@ async fn build_bitcoin_autotools(
     src_dir: &Path,
     cores: usize,
     env: &HashMap<String, String>,
-    log_tx: &Sender<AppMessage>,
-    progress_tx: &Sender<AppMessage>,
+    tx: &Sender<AppMessage>,
 ) -> Result<Vec<PathBuf>> {
-    log(log_tx, "\n🔨 Building with Autotools...\n");
+    log_msg(tx, "\n🔨 Building with Autotools...\n");
+    log_msg(tx, "\n⚙️  Running autogen.sh...\n");
 
-    log(log_tx, "\n⚙️  Running autogen.sh...\n");
-    run_command("./autogen.sh", Some(src_dir), env, log_tx)
+    run_command("./autogen.sh", Some(src_dir), env, tx)
         .await
         .context("autogen.sh failed")?;
 
-    log(
-        log_tx,
-        "\n⚙️  Configuring (wallet support disabled for node-only build)...\n",
-    );
+    log_msg(tx, "\n⚙️  Configuring (wallet support disabled)...\n");
     run_command(
         "./configure --disable-wallet --disable-gui",
         Some(src_dir),
         env,
-        log_tx,
+        tx,
     )
     .await
     .context("./configure failed")?;
 
-    progress_tx.send(AppMessage::Progress(0.5)).ok();
-    log(log_tx, &format!("\n🔧 Compiling with {cores} cores...\n"));
+    tx.send(AppMessage::Progress(0.5)).ok();
+    log_msg(tx, &format!("\n🔧 Compiling with {cores} cores...\n"));
 
-    run_command(&format!("make -j{cores}"), Some(src_dir), env, log_tx)
+    run_command(&format!("make -j{cores}"), Some(src_dir), env, tx)
         .await
         .context("make failed")?;
 
@@ -290,57 +269,65 @@ async fn build_bitcoin_autotools(
 fn copy_binaries(
     dest_dir: &Path,
     binary_files: &[PathBuf],
-    log_tx: &Sender<AppMessage>,
+    tx: &Sender<AppMessage>,
 ) -> Result<Vec<PathBuf>> {
     std::fs::create_dir_all(dest_dir).context("Failed to create output directory")?;
-    log(
-        log_tx,
-        &format!("Copying binaries to: {}\n", dest_dir.display()),
-    );
+    log_msg(tx, &format!("Copying binaries to: {}\n", dest_dir.display()));
 
     let mut copied = Vec::new();
     for binary in binary_files {
-        if binary.exists() {
-            let name = binary.file_name().unwrap_or_default();
-            let dest = dest_dir.join(name);
-            match std::fs::copy(binary, &dest) {
-                Ok(_) => {
-                    // Make the binary executable (Unix permissions 0o755).
-                    #[cfg(unix)]
-                    {
-                        use std::os::unix::fs::PermissionsExt;
-                        let _ = std::fs::set_permissions(
-                            &dest,
-                            std::fs::Permissions::from_mode(0o755),
-                        );
-                    }
-                    log(
-                        log_tx,
-                        &format!(
-                            "✓ Copied: {} → {}\n",
-                            name.to_string_lossy(),
-                            dest.display()
-                        ),
-                    );
-                    copied.push(dest);
-                }
-                Err(e) => {
-                    log(
-                        log_tx,
-                        &format!("⚠️  Failed to copy {}: {e}\n", name.to_string_lossy()),
-                    );
-                }
-            }
-        } else {
-            log(
-                log_tx,
+        if !binary.exists() {
+            log_msg(
+                tx,
                 &format!("⚠️  Binary not found (skipping): {}\n", binary.display()),
             );
+            continue;
+        }
+
+        // Guard: a path like `/` has no file name.
+        let name = match binary.file_name() {
+            Some(n) => n,
+            None => {
+                log_msg(
+                    tx,
+                    &format!("⚠️  Skipping path with no file name: {}\n", binary.display()),
+                );
+                continue;
+            }
+        };
+
+        let dest = dest_dir.join(name);
+        match std::fs::copy(binary, &dest) {
+            Ok(_) => {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = std::fs::set_permissions(
+                        &dest,
+                        std::fs::Permissions::from_mode(0o755),
+                    );
+                }
+                log_msg(
+                    tx,
+                    &format!(
+                        "✓ Copied: {} → {}\n",
+                        name.to_string_lossy(),
+                        dest.display()
+                    ),
+                );
+                copied.push(dest);
+            }
+            Err(e) => {
+                log_msg(
+                    tx,
+                    &format!("⚠️  Failed to copy {}: {e}\n", name.to_string_lossy()),
+                );
+            }
         }
     }
 
     if copied.is_empty() {
-        log(log_tx, "❌ WARNING: No binaries were copied!\n");
+        log_msg(tx, "❌ WARNING: No binaries were copied!\n");
     }
 
     Ok(copied)
@@ -349,20 +336,21 @@ fn copy_binaries(
 // ─── Version helpers ──────────────────────────────────────────────────────────
 
 /// Parse a version tag into `(major, minor)`.  Strips any leading `v`.
+///
+/// Uses a process-global compiled regex — no per-call allocation.
 pub fn parse_version(tag: &str) -> (u32, u32) {
     let tag = tag.trim_start_matches('v');
-    // The regex is compiled once per call; for a GUI app the overhead is fine.
-    let re = Regex::new(r"^(\d+)\.(\d+)").expect("static regex is valid");
-    re.captures(tag)
-        .and_then(|c| {
-            let major = c.get(1)?.as_str().parse().ok()?;
-            let minor = c.get(2)?.as_str().parse().ok()?;
+    VERSION_RE
+        .captures(tag)
+        .and_then(|c: regex::Captures<'_>| {
+            let major: u32 = c.get(1)?.as_str().parse().ok()?;
+            let minor: u32 = c.get(2)?.as_str().parse().ok()?;
             Some((major, minor))
         })
         .unwrap_or((0, 0))
 }
 
-/// Bitcoin Core v25+ uses CMake; older versions use Autotools.
+/// `true` when Bitcoin Core v25+ (uses CMake); older versions use Autotools.
 pub fn use_cmake(version: &str) -> bool {
     let (major, _) = parse_version(version);
     major >= 25
@@ -370,64 +358,96 @@ pub fn use_cmake(version: &str) -> bool {
 
 // ─── Clone / update helper ────────────────────────────────────────────────────
 
+/// Clone the repo at `version` into `src_dir`, or fetch+checkout if it exists.
+///
+/// Uses `tokio::process::Command` directly for git operations to avoid shell
+/// injection: `version` comes from the GitHub API and `src_dir` from user input.
 async fn clone_or_update(
     src_dir: &Path,
     build_dir: &Path,
     version: &str,
     repo_url: &str,
-    log_tx: &Sender<AppMessage>,
+    tx: &Sender<AppMessage>,
     env: &HashMap<String, String>,
 ) -> Result<()> {
     if !src_dir.exists() {
-        log(
-            log_tx,
-            &format!("\n📥 Cloning repository from {repo_url}...\n"),
-        );
-        let src_str = src_dir.display().to_string();
+        log_msg(tx, &format!("\n📥 Cloning repository from {repo_url}...\n"));
+
+        // Use run_command with the shell for consistency with the rest of the
+        // build pipeline; version tags from GitHub are expected to match
+        // [v][0-9]+\.[0-9]+.* — validate before interpolating.
+        validate_version_tag(version)?;
+
         run_command(
-            &format!("git clone --depth 1 --branch {version} {repo_url} {src_str}"),
+            &format!(
+                "git clone --depth 1 --branch {} {} {}",
+                shell_quote(version),
+                shell_quote(repo_url),
+                shell_quote(&src_dir.to_string_lossy()),
+            ),
             Some(build_dir),
             env,
-            log_tx,
+            tx,
         )
         .await
         .context("git clone failed")?;
-        log(
-            log_tx,
-            &format!("✓ Source cloned to {}\n", src_dir.display()),
-        );
+
+        log_msg(tx, &format!("✓ Source cloned to {}\n", src_dir.display()));
     } else {
-        log(
-            log_tx,
-            &format!(
-                "✓ Source directory already exists: {}\n",
-                src_dir.display()
-            ),
+        log_msg(
+            tx,
+            &format!("✓ Source directory exists: {}\n", src_dir.display()),
         );
-        log(log_tx, &format!("📥 Updating to {version}...\n"));
+        log_msg(tx, &format!("📥 Updating to {version}...\n"));
+
+        validate_version_tag(version)?;
+
         run_command(
-            &format!("git fetch --depth 1 origin tag {version}"),
+            &format!("git fetch --depth 1 origin tag {}", shell_quote(version)),
             Some(src_dir),
             env,
-            log_tx,
+            tx,
         )
         .await
         .context("git fetch failed")?;
+
         run_command(
-            &format!("git checkout {version}"),
+            &format!("git checkout {}", shell_quote(version)),
             Some(src_dir),
             env,
-            log_tx,
+            tx,
         )
         .await
         .context("git checkout failed")?;
-        log(log_tx, &format!("✓ Updated to {version}\n"));
+
+        log_msg(tx, &format!("✓ Updated to {version}\n"));
     }
     Ok(())
 }
 
-// ─── Inline log helper ────────────────────────────────────────────────────────
+// ─── Utilities ────────────────────────────────────────────────────────────────
 
-fn log(tx: &Sender<AppMessage>, msg: &str) {
-    tx.send(AppMessage::Log(msg.to_string())).ok();
+/// Validate that a version tag contains only safe characters.
+/// GitHub tags for Bitcoin/Electrs follow `v\d+\.\d+[.\d]*(-rc\d+)?`.
+fn validate_version_tag(tag: &str) -> Result<()> {
+    if tag.chars().all(|c| c.is_alphanumeric() || matches!(c, '.' | '-' | '_')) {
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!(
+            "Version tag contains unexpected characters: {tag:?}"
+        ))
+    }
+}
+
+/// Wrap a string in single quotes for POSIX sh, escaping any `'` inside.
+fn shell_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', r"'\''"))
+}
+
+/// Return the first `max_chars` characters of `s`, never splitting a codepoint.
+fn truncate_str(s: &str, max_chars: usize) -> &str {
+    match s.char_indices().nth(max_chars) {
+        Some((byte_pos, _)) => &s[..byte_pos],
+        None => s,
+    }
 }

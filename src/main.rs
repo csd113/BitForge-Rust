@@ -3,12 +3,9 @@
 // Entry point for the Bitcoin & Electrs Compiler.
 //
 // Responsibilities:
-//   1. Create the tokio multi-thread runtime (for all background I/O).
-//   2. Create the std::sync::mpsc channels (AppMessage) and the
-//      ConfirmRequest channel that bridges the UI to async tasks.
-//   3. Set a wide PATH in the process environment so child process spawns
-//      can find Homebrew, Cargo, etc. (mirrors the Python path-patching at
-//      the top of the script).
+//   1. Widen PATH in the process environment for all child spawns.
+//   2. Create the tokio multi-thread runtime.
+//   3. Create the std::sync::mpsc channels.
 //   4. Launch the eframe event loop on the main thread.
 
 mod app;
@@ -25,35 +22,35 @@ use app::BitcoinCompilerApp;
 use env_setup::{brew_prefix, find_brew, setup_build_environment};
 
 fn main() -> eframe::Result<()> {
-    // ── 0. Widen PATH for child processes ─────────────────────────────────────
-    // The Python script patches os.environ["PATH"] at module load time.
-    // We replicate this so that every std::process::Command we spawn inherits
-    // the correct PATH, even before setup_build_environment() is called for a
-    // specific build task.
+    // ── 0. Widen PATH ─────────────────────────────────────────────────────────
+    // set_var is safe here: no other threads are running yet.
+    // Note: std::env::set_var will require `unsafe` in future Rust editions.
     {
         let brew = find_brew();
-        let pfx = brew.as_deref().map(brew_prefix);
-        let env = setup_build_environment(pfx.as_deref());
+        let pfx  = brew.as_deref().map(brew_prefix);
+        let env  = setup_build_environment(pfx.as_deref());
         if let Some(path) = env.get("PATH") {
+            // SAFETY: single-threaded at this point.
             std::env::set_var("PATH", path);
         }
     }
 
     // ── 1. Tokio runtime ──────────────────────────────────────────────────────
-    // Multi-thread runtime so HTTP + subprocess tasks can run concurrently.
+    // Scale worker threads to available CPUs, capped at 8.
+    let worker_threads = std::thread::available_parallelism()
+        .map(|n| n.get().min(8))
+        .unwrap_or(4);
+
     let runtime = Arc::new(
         tokio::runtime::Builder::new_multi_thread()
             .enable_all()
-            .worker_threads(4)
+            .worker_threads(worker_threads)
             .build()
             .expect("Failed to create tokio runtime"),
     );
 
     // ── 2. Channels ───────────────────────────────────────────────────────────
-    // AppMessage: background tasks → UI
-    let (msg_tx, msg_rx) = std::sync::mpsc::channel::<messages::AppMessage>();
-
-    // ConfirmRequest: background tasks need a Yes/No answer from the UI
+    let (msg_tx, msg_rx)         = std::sync::mpsc::channel::<messages::AppMessage>();
     let (confirm_tx, confirm_rx) = std::sync::mpsc::channel::<messages::ConfirmRequest>();
 
     // ── 3. eframe native window options ──────────────────────────────────────
@@ -62,7 +59,6 @@ fn main() -> eframe::Result<()> {
             .with_title("Bitcoin & Electrs Compiler for macOS")
             .with_inner_size([920.0, 820.0])
             .with_min_inner_size([700.0, 600.0]),
-        // Use the wgpu (Metal) renderer on macOS for best performance.
         renderer: eframe::Renderer::Wgpu,
         ..Default::default()
     };
@@ -72,10 +68,7 @@ fn main() -> eframe::Result<()> {
         "Bitcoin & Electrs Compiler for macOS",
         native_options,
         Box::new(move |cc| {
-            // Configure egui visuals for a slightly darker default theme so
-            // the dark log terminal blends in better.
             cc.egui_ctx.set_visuals(egui::Visuals::dark());
-
             Ok(Box::new(BitcoinCompilerApp::new(
                 cc,
                 runtime,
