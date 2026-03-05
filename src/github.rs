@@ -72,7 +72,7 @@ async fn fetch_versions(url: &str, project: &str) -> Result<Vec<String>> {
     // Sort newest-first by semver tuple (major, minor, patch).
     // This guarantees the correct ordering even when the API returns
     // releases out of order (e.g. patch releases interleaved with majors).
-    versions.sort_by(|a, b| parse_semver(b).cmp(&parse_semver(a)));
+    versions.sort_by_key(|b| std::cmp::Reverse(parse_semver(b)));
     versions.truncate(MAX_VERSIONS);
 
     Ok(versions)

@@ -50,7 +50,6 @@ pub fn setup_build_environment(brew_pfx: Option<&str>) -> HashMap<String, String
 
     // Declare owned strings that need to live long enough.
     let pfx_bin;
-    let cargo_bin;
     let llvm_bin_owned;
 
     if let Some(pfx) = brew_pfx {
@@ -60,7 +59,7 @@ pub fn setup_build_environment(brew_pfx: Option<&str>) -> HashMap<String, String
     path_parts.push("/opt/homebrew/bin");
     path_parts.push("/usr/local/bin");
 
-    cargo_bin = format!("{home}/.cargo/bin");
+    let cargo_bin = format!("{home}/.cargo/bin");
     if std::path::Path::new(&cargo_bin).is_dir() {
         path_parts.push(&cargo_bin);
     }
