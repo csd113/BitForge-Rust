@@ -28,8 +28,8 @@ pub enum AppMessage {
 
     /// Show an informational / error overlay (no reply needed).
     ShowDialog {
-        title:    String,
-        message:  String,
+        title: String,
+        message: String,
         is_error: bool,
     },
 
@@ -40,8 +40,8 @@ pub enum AppMessage {
 // ─── ConfirmRequest ───────────────────────────────────────────────────────────
 
 pub struct ConfirmRequest {
-    pub title:       String,
-    pub message:     String,
+    pub title: String,
+    pub message: String,
     /// UI sends `true` (Yes) or `false` (No) back through this channel.
     pub response_tx: oneshot::Sender<bool>,
 }

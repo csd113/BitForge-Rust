@@ -27,20 +27,20 @@ const CONTENT_WIDTH: f32 = 860.0;
 
 mod pal {
     use egui::Color32;
-    pub const ACCENT:        Color32 = Color32::from_rgb(0, 122, 255);    // macOS blue
-    pub const ACCENT_TEXT:   Color32 = Color32::WHITE;
-    pub const SURFACE:       Color32 = Color32::from_rgb(250, 250, 252);  // card bg
-    pub const BORDER:        Color32 = Color32::from_rgb(212, 212, 218);
-    pub const LABEL_MUTED:   Color32 = Color32::from_rgb(128, 128, 138);
-    pub const TEXT_PRIMARY:  Color32 = Color32::from_rgb(20,  20,  25);
-    pub const SUCCESS:       Color32 = Color32::from_rgb(52,  199, 89);   // macOS green
-    pub const DANGER:        Color32 = Color32::from_rgb(255, 59,  48);   // macOS red
-    pub const PAGE_BG:       Color32 = Color32::from_rgb(236, 236, 240);  // window bg
-    pub const STATUS_BG:     Color32 = Color32::from_rgb(242, 242, 246);
+    pub const ACCENT: Color32 = Color32::from_rgb(0, 122, 255); // macOS blue
+    pub const ACCENT_TEXT: Color32 = Color32::WHITE;
+    pub const SURFACE: Color32 = Color32::from_rgb(250, 250, 252); // card bg
+    pub const BORDER: Color32 = Color32::from_rgb(212, 212, 218);
+    pub const LABEL_MUTED: Color32 = Color32::from_rgb(128, 128, 138);
+    pub const TEXT_PRIMARY: Color32 = Color32::from_rgb(20, 20, 25);
+    pub const SUCCESS: Color32 = Color32::from_rgb(52, 199, 89); // macOS green
+    pub const DANGER: Color32 = Color32::from_rgb(255, 59, 48); // macOS red
+    pub const PAGE_BG: Color32 = Color32::from_rgb(236, 236, 240); // window bg
+    pub const STATUS_BG: Color32 = Color32::from_rgb(242, 242, 246);
 
     // Terminal stays dark
-    pub const TERM_BG:     Color32 = Color32::from_rgb(18, 18, 18);
-    pub const TERM_TEXT:   Color32 = Color32::from_rgb(0, 215, 0);
+    pub const TERM_BG: Color32 = Color32::from_rgb(18, 18, 18);
+    pub const TERM_TEXT: Color32 = Color32::from_rgb(0, 215, 0);
     pub const TERM_BORDER: Color32 = Color32::from_rgb(55, 55, 55);
 }
 
@@ -54,13 +54,13 @@ fn home_dir() -> Option<PathBuf> {
 
 enum Modal {
     Alert {
-        title:    String,
-        message:  String,
+        title: String,
+        message: String,
         is_error: bool,
     },
     Confirm {
-        title:       String,
-        message:     String,
+        title: String,
+        message: String,
         response_tx: tokio::sync::oneshot::Sender<bool>,
     },
 }
@@ -74,8 +74,8 @@ enum ModalAction {
 
 pub struct BitForgeApp {
     // Configuration
-    target:    String,
-    cores:     usize,
+    target: String,
+    cores: usize,
     max_cores: usize,
     build_dir: String,
 
@@ -86,18 +86,18 @@ pub struct BitForgeApp {
     selected_electrs: String,
 
     // UI state
-    log_buffer:     String,
+    log_buffer: String,
     log_line_count: usize,
-    progress:       f32,
-    is_busy:        bool,
-    status_bar:     String,
+    progress: f32,
+    is_busy: bool,
+    status_bar: String,
 
     // Modal
     modal: Option<Modal>,
 
     // Channels
-    msg_rx:     Receiver<AppMessage>,
-    msg_tx:     Sender<AppMessage>,
+    msg_rx: Receiver<AppMessage>,
+    msg_tx: Sender<AppMessage>,
     confirm_rx: Receiver<ConfirmRequest>,
     confirm_tx: Sender<ConfirmRequest>,
 
@@ -105,7 +105,7 @@ pub struct BitForgeApp {
     runtime: Arc<Runtime>,
 
     // Environment
-    brew:     Option<String>,
+    brew: Option<String>,
     brew_pfx: Option<String>,
 }
 
@@ -123,9 +123,9 @@ impl BitForgeApp {
             .unwrap_or(1);
         let default_cores = max_cores.saturating_sub(1).max(1);
 
-        let brew     = find_brew();
+        let brew = find_brew();
         let brew_pfx = brew.as_deref().map(brew_prefix);
-        let macos    = macos_version();
+        let macos = macos_version();
 
         let status_bar = format!(
             "macOS {}   ·   Homebrew: {}   ·   {} CPUs",
@@ -135,12 +135,16 @@ impl BitForgeApp {
         );
 
         let default_build_dir = home_dir()
-            .map(|h| h.join("Downloads/bitcoin_builds").to_string_lossy().into_owned())
+            .map(|h| {
+                h.join("Downloads/bitcoin_builds")
+                    .to_string_lossy()
+                    .into_owned()
+            })
             .unwrap_or_else(|| "/tmp/bitcoin_builds".to_owned());
 
         let mut app = Self {
-            target:   "Bitcoin".to_owned(),
-            cores:    default_cores,
+            target: "Bitcoin".to_owned(),
+            cores: default_cores,
             max_cores,
             build_dir: default_build_dir,
 
@@ -149,10 +153,10 @@ impl BitForgeApp {
             electrs_versions: vec!["Loading...".to_owned()],
             selected_electrs: "Loading...".to_owned(),
 
-            log_buffer:     String::new(),
+            log_buffer: String::new(),
             log_line_count: 0,
-            progress:       0.0,
-            is_busy:        false,
+            progress: 0.0,
+            is_busy: false,
             status_bar,
 
             modal: None,
@@ -169,11 +173,13 @@ impl BitForgeApp {
         };
 
         // Splash — borrow ends before first append_log call
-        let sep      = "=".repeat(60);
+        let sep = "=".repeat(60);
         let brew_str = app.brew_pfx.as_deref().unwrap_or("Not Found").to_owned();
-        let cpus     = app.max_cores;
+        let cpus = app.max_cores;
 
-        app.append_log(&format!("{sep}\nBitForge — Bitcoin Core & Electrs Compiler\n{sep}\n"));
+        app.append_log(&format!(
+            "{sep}\nBitForge — Bitcoin Core & Electrs Compiler\n{sep}\n"
+        ));
         app.append_log(&format!("System: macOS {macos}\n"));
         app.append_log(&format!("Homebrew: {brew_str}\n"));
         app.append_log(&format!("CPU Cores: {cpus}\n"));
@@ -219,12 +225,14 @@ impl BitForgeApp {
             let mut remaining = drop_count;
             if let Some(split_pos) = self.log_buffer.char_indices().find_map(|(i, c)| {
                 if c == '\n' {
-                    if remaining == 0 { return Some(i); }
+                    if remaining == 0 {
+                        return Some(i);
+                    }
                     remaining -= 1;
                 }
                 None
             }) {
-                self.log_buffer     = self.log_buffer[split_pos + 1..].to_owned();
+                self.log_buffer = self.log_buffer[split_pos + 1..].to_owned();
                 self.log_line_count = TRIM_TO_LINES;
             }
         }
@@ -249,11 +257,19 @@ impl BitForgeApp {
                     }
                     self.electrs_versions = versions;
                 }
-                AppMessage::ShowDialog { title, message, is_error } => {
-                    self.modal = Some(Modal::Alert { title, message, is_error });
+                AppMessage::ShowDialog {
+                    title,
+                    message,
+                    is_error,
+                } => {
+                    self.modal = Some(Modal::Alert {
+                        title,
+                        message,
+                        is_error,
+                    });
                 }
                 AppMessage::TaskDone => {
-                    self.is_busy  = false;
+                    self.is_busy = false;
                     self.progress = 0.0;
                 }
             }
@@ -262,8 +278,8 @@ impl BitForgeApp {
         if self.modal.is_none() {
             if let Ok(req) = self.confirm_rx.try_recv() {
                 self.modal = Some(Modal::Confirm {
-                    title:       req.title,
-                    message:     req.message,
+                    title: req.title,
+                    message: req.message,
                     response_tx: req.response_tx,
                 });
             }
@@ -285,8 +301,8 @@ impl BitForgeApp {
             }
         };
 
-        let env        = setup_build_environment(self.brew_pfx.as_deref());
-        let tx         = self.msg_tx.clone();
+        let env = setup_build_environment(self.brew_pfx.as_deref());
+        let tx = self.msg_tx.clone();
         let confirm_tx = self.confirm_tx.clone();
 
         self.is_busy = true;
@@ -297,10 +313,11 @@ impl BitForgeApp {
                 Ok(_) => {}
                 Err(e) => {
                     tx.send(AppMessage::ShowDialog {
-                        title:    "Error".into(),
-                        message:  format!("Dependency check failed:\n{e}"),
+                        title: "Error".into(),
+                        message: format!("Dependency check failed:\n{e}"),
                         is_error: true,
-                    }).ok();
+                    })
+                    .ok();
                 }
             }
             tx.send(AppMessage::TaskDone).ok();
@@ -313,16 +330,22 @@ impl BitForgeApp {
             log_msg(&tx, "\n📡 Fetching Bitcoin versions from GitHub...\n");
             match fetch_bitcoin_versions().await {
                 Ok(versions) => {
-                    log_msg(&tx, &format!("✓ Loaded {} Bitcoin versions\n", versions.len()));
+                    log_msg(
+                        &tx,
+                        &format!("✓ Loaded {} Bitcoin versions\n", versions.len()),
+                    );
                     tx.send(AppMessage::BitcoinVersionsLoaded(versions)).ok();
                 }
                 Err(e) => {
                     log_msg(&tx, &format!("⚠️  Could not fetch Bitcoin versions: {e}\n"));
                     tx.send(AppMessage::ShowDialog {
-                        title:    "Network Error".into(),
-                        message:  "Could not fetch Bitcoin versions.\nCheck your internet connection.".into(),
+                        title: "Network Error".into(),
+                        message:
+                            "Could not fetch Bitcoin versions.\nCheck your internet connection."
+                                .into(),
                         is_error: false,
-                    }).ok();
+                    })
+                    .ok();
                 }
             }
         });
@@ -334,16 +357,22 @@ impl BitForgeApp {
             log_msg(&tx, "\n📡 Fetching Electrs versions from GitHub...\n");
             match fetch_electrs_versions().await {
                 Ok(versions) => {
-                    log_msg(&tx, &format!("✓ Loaded {} Electrs versions\n", versions.len()));
+                    log_msg(
+                        &tx,
+                        &format!("✓ Loaded {} Electrs versions\n", versions.len()),
+                    );
                     tx.send(AppMessage::ElectrsVersionsLoaded(versions)).ok();
                 }
                 Err(e) => {
                     log_msg(&tx, &format!("⚠️  Could not fetch Electrs versions: {e}\n"));
                     tx.send(AppMessage::ShowDialog {
-                        title:    "Network Error".into(),
-                        message:  "Could not fetch Electrs versions.\nCheck your internet connection.".into(),
+                        title: "Network Error".into(),
+                        message:
+                            "Could not fetch Electrs versions.\nCheck your internet connection."
+                                .into(),
                         is_error: false,
-                    }).ok();
+                    })
+                    .ok();
                 }
             }
         });
@@ -355,34 +384,34 @@ impl BitForgeApp {
     }
 
     fn spawn_compile(&mut self) {
-        let target      = self.target.clone();
-        let cores       = self.cores;
-        let build_dir   = PathBuf::from(&self.build_dir);
+        let target = self.target.clone();
+        let cores = self.cores;
+        let build_dir = PathBuf::from(&self.build_dir);
         let bitcoin_ver = self.selected_bitcoin.clone();
         let electrs_ver = self.selected_electrs.clone();
 
         let loading = |s: &str| s.is_empty() || s == "Loading...";
         if (target == "Bitcoin" || target == "Both") && loading(&bitcoin_ver) {
             self.modal = Some(Modal::Alert {
-                title:    "Not Ready".into(),
-                message:  "Please wait for Bitcoin versions to load, or click Refresh.".into(),
+                title: "Not Ready".into(),
+                message: "Please wait for Bitcoin versions to load, or click Refresh.".into(),
                 is_error: true,
             });
             return;
         }
         if (target == "Electrs" || target == "Both") && loading(&electrs_ver) {
             self.modal = Some(Modal::Alert {
-                title:    "Not Ready".into(),
-                message:  "Please wait for Electrs versions to load, or click Refresh.".into(),
+                title: "Not Ready".into(),
+                message: "Please wait for Electrs versions to load, or click Refresh.".into(),
                 is_error: true,
             });
             return;
         }
 
         let env = setup_build_environment(self.brew_pfx.as_deref());
-        let tx  = self.msg_tx.clone();
+        let tx = self.msg_tx.clone();
 
-        self.is_busy  = true;
+        self.is_busy = true;
         self.progress = 0.0;
 
         self.runtime.spawn(async move {
@@ -395,7 +424,12 @@ impl BitForgeApp {
                 match compile_bitcoin(&bitcoin_ver, &build_dir, cores, &env, &tx).await {
                     Ok(dir) => {
                         output_dirs.push(dir.to_string_lossy().into_owned());
-                        tx.send(AppMessage::Progress(if target == "Both" { 0.5 } else { 0.95 })).ok();
+                        tx.send(AppMessage::Progress(if target == "Both" {
+                            0.5
+                        } else {
+                            0.95
+                        }))
+                        .ok();
                     }
                     Err(e) => {
                         log_msg(&tx, &format!("\n❌ Compilation failed: {e}\n"));
@@ -403,14 +437,20 @@ impl BitForgeApp {
                             title: "Compilation Failed".into(),
                             message: e.to_string(),
                             is_error: true,
-                        }).ok();
+                        })
+                        .ok();
                         error_occurred = true;
                     }
                 }
             }
 
             if !error_occurred && (target == "Electrs" || target == "Both") {
-                tx.send(AppMessage::Progress(if target == "Both" { 0.55 } else { 0.1 })).ok();
+                tx.send(AppMessage::Progress(if target == "Both" {
+                    0.55
+                } else {
+                    0.1
+                }))
+                .ok();
                 match compile_electrs(&electrs_ver, &build_dir, cores, &env, &tx).await {
                     Ok(dir) => {
                         output_dirs.push(dir.to_string_lossy().into_owned());
@@ -422,7 +462,8 @@ impl BitForgeApp {
                             title: "Compilation Failed".into(),
                             message: e.to_string(),
                             is_error: true,
-                        }).ok();
+                        })
+                        .ok();
                         error_occurred = true;
                     }
                 }
@@ -430,15 +471,19 @@ impl BitForgeApp {
 
             if !error_occurred {
                 tx.send(AppMessage::Progress(1.0)).ok();
-                let dirs_list = output_dirs.iter()
+                let dirs_list = output_dirs
+                    .iter()
                     .map(|d| format!("• {d}"))
                     .collect::<Vec<_>>()
                     .join("\n");
                 tx.send(AppMessage::ShowDialog {
-                    title:    "Compilation Complete".into(),
-                    message:  format!("✅ {target} compiled successfully!\n\nBinaries saved to:\n{dirs_list}"),
+                    title: "Compilation Complete".into(),
+                    message: format!(
+                        "✅ {target} compiled successfully!\n\nBinaries saved to:\n{dirs_list}"
+                    ),
                     is_error: false,
-                }).ok();
+                })
+                .ok();
             }
 
             tx.send(AppMessage::TaskDone).ok();
@@ -451,10 +496,14 @@ impl BitForgeApp {
         let action: Option<ModalAction> = match &self.modal {
             None => return,
 
-            Some(Modal::Alert { title, message, is_error }) => {
+            Some(Modal::Alert {
+                title,
+                message,
+                is_error,
+            }) => {
                 let title_str = title.clone();
-                let msg_str   = message.clone();
-                let err       = *is_error;
+                let msg_str = message.clone();
+                let err = *is_error;
                 let mut close = false;
 
                 egui::Window::new(title_str.as_str())
@@ -484,12 +533,16 @@ impl BitForgeApp {
                         ui.add_space(2.0);
                     });
 
-                if close { Some(ModalAction::Close) } else { None }
+                if close {
+                    Some(ModalAction::Close)
+                } else {
+                    None
+                }
             }
 
             Some(Modal::Confirm { title, message, .. }) => {
                 let title_str = title.clone();
-                let msg_str   = message.clone();
+                let msg_str = message.clone();
                 let mut answer: Option<bool> = None;
 
                 egui::Window::new(title_str.as_str())
@@ -509,7 +562,10 @@ impl BitForgeApp {
                                 answer = Some(true);
                             }
                             ui.add_space(6.0);
-                            if ui.button(egui::RichText::new("Cancel").size(13.0)).clicked() {
+                            if ui
+                                .button(egui::RichText::new("Cancel").size(13.0))
+                                .clicked()
+                            {
                                 answer = Some(false);
                             }
                         });
@@ -522,7 +578,9 @@ impl BitForgeApp {
 
         match action {
             None => {}
-            Some(ModalAction::Close) => { self.modal = None; }
+            Some(ModalAction::Close) => {
+                self.modal = None;
+            }
             Some(ModalAction::Confirm(answer)) => {
                 if let Some(Modal::Confirm { response_tx, .. }) = self.modal.take() {
                     response_tx.send(answer).ok();
@@ -563,7 +621,10 @@ impl BitForgeApp {
                     .color(pal::LABEL_MUTED),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.add_enabled(!self.is_busy, accent_button("Check & Install")).clicked() {
+                    if ui
+                        .add_enabled(!self.is_busy, accent_button("Check & Install"))
+                        .clicked()
+                    {
                         self.spawn_check_deps();
                     }
                 });
@@ -696,15 +757,19 @@ impl BitForgeApp {
         ui.add_space(10.0);
 
         // ── Build log terminal — FIXED HEIGHT, never resizes ──────────────────
-        ui.label(egui::RichText::new("Build Log").strong().color(pal::TEXT_PRIMARY));
+        ui.label(
+            egui::RichText::new("Build Log")
+                .strong()
+                .color(pal::TEXT_PRIMARY),
+        );
         ui.add_space(4.0);
 
         egui::Frame {
-            fill:          pal::TERM_BG,
-            stroke:        egui::Stroke::new(1.0, pal::TERM_BORDER),
-            inner_margin:  egui::Margin::same(10.0),
+            fill: pal::TERM_BG,
+            stroke: egui::Stroke::new(1.0, pal::TERM_BORDER),
+            inner_margin: egui::Margin::same(10.0),
             rounding: egui::Rounding::same(8.0),
-            outer_margin:  egui::Margin::ZERO,
+            outer_margin: egui::Margin::ZERO,
             ..Default::default()
         }
         .show(ui, |ui| {
@@ -734,7 +799,11 @@ impl BitForgeApp {
 
         // ── Compile button ────────────────────────────────────────────────────
         ui.vertical_centered(|ui| {
-            let label = if self.is_busy { "⏳  Compiling…" } else { "🚀  Start Compilation" };
+            let label = if self.is_busy {
+                "⏳  Compiling…"
+            } else {
+                "🚀  Start Compilation"
+            };
             if ui
                 .add_enabled(
                     !self.is_busy,
@@ -774,11 +843,11 @@ fn accent_button(label: &str) -> egui::Button<'_> {
 /// Render a titled card section.
 fn section_card(ui: &mut egui::Ui, heading: &str, body: impl FnOnce(&mut egui::Ui)) {
     egui::Frame {
-        fill:          pal::SURFACE,
-        stroke:        egui::Stroke::new(1.0, pal::BORDER),
+        fill: pal::SURFACE,
+        stroke: egui::Stroke::new(1.0, pal::BORDER),
         rounding: egui::Rounding::same(10.0),
-        inner_margin:  egui::Margin::symmetric(16.0, 12.0),
-        outer_margin:  egui::Margin::ZERO,
+        inner_margin: egui::Margin::symmetric(16.0, 12.0),
+        outer_margin: egui::Margin::ZERO,
         ..Default::default()
     }
     .show(ui, |ui| {
@@ -804,8 +873,8 @@ impl eframe::App for BitForgeApp {
         // ── Status bar ────────────────────────────────────────────────────────
         egui::TopBottomPanel::bottom("status_bar")
             .frame(egui::Frame {
-                fill:         pal::STATUS_BG,
-                stroke:       egui::Stroke::new(1.0, pal::BORDER),
+                fill: pal::STATUS_BG,
+                stroke: egui::Stroke::new(1.0, pal::BORDER),
                 inner_margin: egui::Margin::symmetric(16.0, 5.0),
                 ..Default::default()
             })
@@ -820,7 +889,7 @@ impl eframe::App for BitForgeApp {
         // ── Main window ───────────────────────────────────────────────────────
         egui::CentralPanel::default()
             .frame(egui::Frame {
-                fill:         pal::PAGE_BG,
+                fill: pal::PAGE_BG,
                 inner_margin: egui::Margin::ZERO,
                 ..Default::default()
             })
@@ -830,7 +899,7 @@ impl eframe::App for BitForgeApp {
                     .show(ui, |ui| {
                         // Horizontal centering: equal padding on both sides.
                         let total = ui.available_width();
-                        let pad   = ((total - CONTENT_WIDTH) / 2.0).max(16.0);
+                        let pad = ((total - CONTENT_WIDTH) / 2.0).max(16.0);
 
                         ui.add_space(20.0);
                         ui.horizontal(|ui| {

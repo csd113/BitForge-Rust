@@ -18,8 +18,8 @@ fn main() -> eframe::Result<()> {
     // SAFETY: single-threaded at this point.
     {
         let brew = find_brew();
-        let pfx  = brew.as_deref().map(brew_prefix);
-        let env  = setup_build_environment(pfx.as_deref());
+        let pfx = brew.as_deref().map(brew_prefix);
+        let env = setup_build_environment(pfx.as_deref());
         if let Some(path) = env.get("PATH") {
             std::env::set_var("PATH", path);
         }
@@ -39,7 +39,7 @@ fn main() -> eframe::Result<()> {
     );
 
     // ── 2. Channels ───────────────────────────────────────────────────────────
-    let (msg_tx,     msg_rx)     = std::sync::mpsc::channel::<messages::AppMessage>();
+    let (msg_tx, msg_rx) = std::sync::mpsc::channel::<messages::AppMessage>();
     let (confirm_tx, confirm_rx) = std::sync::mpsc::channel::<messages::ConfirmRequest>();
 
     // ── 3. Window ─────────────────────────────────────────────────────────────
@@ -67,43 +67,38 @@ fn main() -> eframe::Result<()> {
             // idle  → #C4C4CA  (cool gray — clearly a button)
             // hover → #B0B0B8  (slightly darker on hover)
             // click → #9C9CA6  (pressed feedback)
-            let idle_fill  = egui::Color32::from_rgb(196, 196, 202);
+            let idle_fill = egui::Color32::from_rgb(196, 196, 202);
             let hover_fill = egui::Color32::from_rgb(176, 176, 186);
             let click_fill = egui::Color32::from_rgb(156, 156, 166);
             let btn_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(160, 160, 170));
 
-            visuals.widgets.inactive.bg_fill      = idle_fill;
-            visuals.widgets.inactive.weak_bg_fill  = idle_fill;
-            visuals.widgets.inactive.bg_stroke     = btn_stroke;
-            visuals.widgets.hovered.bg_fill        = hover_fill;
-            visuals.widgets.hovered.weak_bg_fill   = hover_fill;
-            visuals.widgets.hovered.bg_stroke      = btn_stroke;
-            visuals.widgets.active.bg_fill         = click_fill;
-            visuals.widgets.active.weak_bg_fill    = click_fill;
+            visuals.widgets.inactive.bg_fill = idle_fill;
+            visuals.widgets.inactive.weak_bg_fill = idle_fill;
+            visuals.widgets.inactive.bg_stroke = btn_stroke;
+            visuals.widgets.hovered.bg_fill = hover_fill;
+            visuals.widgets.hovered.weak_bg_fill = hover_fill;
+            visuals.widgets.hovered.bg_stroke = btn_stroke;
+            visuals.widgets.active.bg_fill = click_fill;
+            visuals.widgets.active.weak_bg_fill = click_fill;
 
             // ── Selection / accent ─────────────────────────────────────────────
             visuals.selection.bg_fill = egui::Color32::from_rgb(0, 122, 255);
-            visuals.selection.stroke  = egui::Stroke::NONE;
-            visuals.hyperlink_color   = egui::Color32::from_rgb(0, 122, 255);
+            visuals.selection.stroke = egui::Stroke::NONE;
+            visuals.hyperlink_color = egui::Color32::from_rgb(0, 122, 255);
 
             // ── Subtle window shadow ───────────────────────────────────────────
-            visuals.popup_shadow  = egui::Shadow::NONE;
+            visuals.popup_shadow = egui::Shadow::NONE;
             visuals.window_shadow = egui::Shadow {
                 offset: egui::Vec2::new(0.0, 4.0),
-                blur:   16.0,
+                blur: 16.0,
                 spread: 0.0,
-                color:  egui::Color32::from_black_alpha(40),
+                color: egui::Color32::from_black_alpha(40),
             };
 
             cc.egui_ctx.set_visuals(visuals);
 
             Ok(Box::new(BitForgeApp::new(
-                cc,
-                runtime,
-                msg_rx,
-                msg_tx,
-                confirm_rx,
-                confirm_tx,
+                cc, runtime, msg_rx, msg_tx, confirm_rx, confirm_tx,
             )))
         }),
     )

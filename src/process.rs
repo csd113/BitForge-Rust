@@ -14,7 +14,7 @@ use std::path::Path;
 use std::sync::mpsc::Sender;
 
 use anyhow::{bail, Context, Result};
-use tokio::io::{AsyncReadExt};
+use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 
 use crate::messages::AppMessage;
@@ -92,10 +92,7 @@ pub async fn run_command(
 /// Continuously read `reader` in 8 KiB chunks and forward sanitised UTF-8
 /// text to `tx`.  Carriage returns not followed by a newline are replaced
 /// with newlines so that git/cmake progress displays properly.
-async fn drain_reader<R: AsyncReadExt + Unpin>(
-    mut reader: R,
-    tx: Sender<AppMessage>,
-) {
+async fn drain_reader<R: AsyncReadExt + Unpin>(mut reader: R, tx: Sender<AppMessage>) {
     let mut buf = vec![0u8; 8192];
     let mut carry = Vec::new(); // bytes from last chunk that ended mid-CR/LF
 

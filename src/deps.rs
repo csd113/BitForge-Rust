@@ -13,9 +13,20 @@ use crate::process::{probe, run_command};
 
 // Homebrew packages required for Bitcoin Core (autotools + cmake) and Electrs.
 const BREW_PACKAGES: &[&str] = &[
-    "automake", "libtool", "pkg-config", "boost",
-    "miniupnpc", "zeromq", "sqlite", "python", "cmake",
-    "llvm", "libevent", "rocksdb", "rust", "git",
+    "automake",
+    "libtool",
+    "pkg-config",
+    "boost",
+    "miniupnpc",
+    "zeromq",
+    "sqlite",
+    "python",
+    "cmake",
+    "llvm",
+    "libevent",
+    "rocksdb",
+    "rust",
+    "git",
 ];
 
 // ─── Public entry point ───────────────────────────────────────────────────────
@@ -59,10 +70,7 @@ pub async fn check_dependencies_task(
     if !missing.is_empty() {
         log_msg(
             &log_tx,
-            &format!(
-                "\n⚠️  Missing Homebrew packages: {}\n",
-                missing.join(", ")
-            ),
+            &format!("\n⚠️  Missing Homebrew packages: {}\n", missing.join(", ")),
         );
 
         let count = missing.len();
@@ -98,8 +106,8 @@ pub async fn check_dependencies_task(
                         log_msg(&log_tx, &format!("❌ Failed to install {pkg}: {e}\n"));
                         log_tx
                             .send(AppMessage::ShowDialog {
-                                title:    "Installation Failed".into(),
-                                message:  format!("Failed to install {pkg}:\n{e}"),
+                                title: "Installation Failed".into(),
+                                message: format!("Failed to install {pkg}:\n{e}"),
                                 is_error: true,
                             })
                             .ok();
@@ -252,15 +260,11 @@ async fn check_rust_installation(
 // ─── Confirmation helper ──────────────────────────────────────────────────────
 
 /// Send a `ConfirmRequest` to the UI, then suspend until the UI replies.
-async fn ask_confirm(
-    tx: &Sender<ConfirmRequest>,
-    title: &str,
-    message: &str,
-) -> bool {
+async fn ask_confirm(tx: &Sender<ConfirmRequest>, title: &str, message: &str) -> bool {
     let (response_tx, response_rx) = oneshot::channel::<bool>();
     tx.send(ConfirmRequest {
-        title:       title.to_owned(),
-        message:     message.to_owned(),
+        title: title.to_owned(),
+        message: message.to_owned(),
         response_tx,
     })
     .ok();

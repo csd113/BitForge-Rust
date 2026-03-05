@@ -31,7 +31,10 @@ pub async fn compile_bitcoin(
     env: &HashMap<String, String>,
     tx: &Sender<AppMessage>,
 ) -> Result<PathBuf> {
-    log_msg(tx, &format!("\n{SEP}\nCOMPILING BITCOIN CORE {version}\n{SEP}\n"));
+    log_msg(
+        tx,
+        &format!("\n{SEP}\nCOMPILING BITCOIN CORE {version}\n{SEP}\n"),
+    );
 
     let version_clean = version.trim_start_matches('v');
     let src_dir = build_dir.join(format!("bitcoin-{version_clean}"));
@@ -69,11 +72,19 @@ pub async fn compile_bitcoin(
     // required non-system dependency is libevent, which pkg-config finds
     // instantly once PKG_CONFIG_PATH is set correctly.
 
-    log_msg(tx, "\n── Step 1/3: CMake configure ────────────────────────────────\n");
-    log_msg(tx, &format!(
-        "PKG_CONFIG_PATH = {}\n\n",
-        env.get("PKG_CONFIG_PATH").map(|s| s.as_str()).unwrap_or("(not set)")
-    ));
+    log_msg(
+        tx,
+        "\n── Step 1/3: CMake configure ────────────────────────────────\n",
+    );
+    log_msg(
+        tx,
+        &format!(
+            "PKG_CONFIG_PATH = {}\n\n",
+            env.get("PKG_CONFIG_PATH")
+                .map(|s| s.as_str())
+                .unwrap_or("(not set)")
+        ),
+    );
 
     tx.send(AppMessage::Progress(0.2)).ok();
 
@@ -101,7 +112,10 @@ pub async fn compile_bitcoin(
     )?;
 
     // ── Step 3: cmake build ───────────────────────────────────────────────────
-    log_msg(tx, &format!("\n── Step 2/3: Build ({cores} cores) ──────────────────────────────\n\n"));
+    log_msg(
+        tx,
+        &format!("\n── Step 2/3: Build ({cores} cores) ──────────────────────────────\n\n"),
+    );
     tx.send(AppMessage::Progress(0.45)).ok();
 
     // No --target flag: with BUILD_TESTS/BENCH/GUI/WALLET all OFF at configure
@@ -120,7 +134,10 @@ pub async fn compile_bitcoin(
     tx.send(AppMessage::Progress(0.9)).ok();
 
     // ── Step 4: copy binaries ─────────────────────────────────────────────────
-    log_msg(tx, "\n── Step 3/3: Copying binaries ───────────────────────────────\n");
+    log_msg(
+        tx,
+        "\n── Step 3/3: Copying binaries ───────────────────────────────\n",
+    );
 
     // Scan the bin dir for whatever executables were actually produced.
     // The exact set varies by version so we copy everything present.
@@ -141,18 +158,22 @@ pub async fn compile_bitcoin(
         ));
     }
 
-    log_msg(tx, &format!(
-        "\n{SEP}\n✅ BITCOIN CORE {version} COMPILED SUCCESSFULLY!\n{SEP}\n\n\
+    log_msg(
+        tx,
+        &format!(
+            "\n{SEP}\n✅ BITCOIN CORE {version} COMPILED SUCCESSFULLY!\n{SEP}\n\n\
          📍 Binaries copied to: {}\n\
          📦 {} binaries: {}\n\n",
-        output_dir.display(),
-        copied.len(),
-        copied.iter()
-            .filter_map(|p| p.file_name())
-            .map(|n| n.to_string_lossy())
-            .collect::<Vec<_>>()
-            .join(", "),
-    ));
+            output_dir.display(),
+            copied.len(),
+            copied
+                .iter()
+                .filter_map(|p| p.file_name())
+                .map(|n| n.to_string_lossy())
+                .collect::<Vec<_>>()
+                .join(", "),
+        ),
+    );
 
     Ok(output_dir)
 }
@@ -164,7 +185,10 @@ pub async fn compile_electrs(
     env: &HashMap<String, String>,
     tx: &Sender<AppMessage>,
 ) -> Result<PathBuf> {
-    log_msg(tx, &format!("\n{SEP}\nCOMPILING ELECTRS {version}\n{SEP}\n"));
+    log_msg(
+        tx,
+        &format!("\n{SEP}\nCOMPILING ELECTRS {version}\n{SEP}\n"),
+    );
 
     let env = cargo_env(env);
 
@@ -175,10 +199,11 @@ pub async fn compile_electrs(
             let msg = "❌ Cargo not found in PATH.\n\nPlease click 'Check & Install Dependencies', ensure Rust is installed, then restart.";
             log_msg(tx, msg);
             tx.send(AppMessage::ShowDialog {
-                title:    "Rust Not Found".into(),
-                message:  msg.into(),
+                title: "Rust Not Found".into(),
+                message: msg.into(),
                 is_error: true,
-            }).ok();
+            })
+            .ok();
             return Err(anyhow::anyhow!("Cargo not found — cannot compile Electrs"));
         }
     }
@@ -196,7 +221,10 @@ pub async fn compile_electrs(
 
     clone_or_update(&src_dir, build_dir, version, ELECTRS_REPO, tx, &env).await?;
 
-    log_msg(tx, &format!("\n🔧 Building Electrs with Cargo ({cores} jobs)...\n"));
+    log_msg(
+        tx,
+        &format!("\n🔧 Building Electrs with Cargo ({cores} jobs)...\n"),
+    );
     if let Some(lcp) = env.get("LIBCLANG_PATH") {
         log_msg(tx, &format!("  LIBCLANG_PATH: {lcp}\n"));
     }
@@ -227,11 +255,14 @@ pub async fn compile_electrs(
         .join(format!("electrs-{version_clean}"));
     copy_binaries(&output_dir, &[binary], tx).await?;
 
-    log_msg(tx, &format!(
-        "\n{SEP}\n✅ ELECTRS {version} COMPILED SUCCESSFULLY!\n{SEP}\n\n\
+    log_msg(
+        tx,
+        &format!(
+            "\n{SEP}\n✅ ELECTRS {version} COMPILED SUCCESSFULLY!\n{SEP}\n\n\
          📍 Binary: {}/electrs\n\n",
-        output_dir.display()
-    ));
+            output_dir.display()
+        ),
+    );
 
     Ok(output_dir)
 }
@@ -332,12 +363,18 @@ async fn copy_binaries(
     tokio::fs::create_dir_all(dest_dir)
         .await
         .context("Failed to create output directory")?;
-    log_msg(tx, &format!("📋 Output directory: {}\n", dest_dir.display()));
+    log_msg(
+        tx,
+        &format!("📋 Output directory: {}\n", dest_dir.display()),
+    );
 
     let mut copied = Vec::new();
     for binary in binary_files {
         if !binary.exists() {
-            log_msg(tx, &format!("  ⚠  Not found (skipping): {}\n", binary.display()));
+            log_msg(
+                tx,
+                &format!("  ⚠  Not found (skipping): {}\n", binary.display()),
+            );
             continue;
         }
 
@@ -352,16 +389,16 @@ async fn copy_binaries(
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
-                    let _ = std::fs::set_permissions(
-                        &dest,
-                        std::fs::Permissions::from_mode(0o755),
-                    );
+                    let _ = std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755));
                 }
                 log_msg(tx, &format!("  ✓ {}\n", name.to_string_lossy()));
                 copied.push(dest);
             }
             Err(e) => {
-                log_msg(tx, &format!("  ✗ Failed to copy {}: {e}\n", name.to_string_lossy()));
+                log_msg(
+                    tx,
+                    &format!("  ✗ Failed to copy {}: {e}\n", name.to_string_lossy()),
+                );
             }
         }
     }
@@ -388,27 +425,44 @@ async fn clone_or_update(
 
     if src_dir.exists() {
         let current_tag = probe(
-            &["git", "-C", &src_dir.to_string_lossy(), "describe", "--tags", "--exact-match"],
+            &[
+                "git",
+                "-C",
+                &src_dir.to_string_lossy(),
+                "describe",
+                "--tags",
+                "--exact-match",
+            ],
             env,
         )
         .await
         .unwrap_or_default();
 
         if current_tag == version {
-            log_msg(tx, &format!("✓ Source already at {version}: {}\n", src_dir.display()));
+            log_msg(
+                tx,
+                &format!("✓ Source already at {version}: {}\n", src_dir.display()),
+            );
             return Ok(());
         }
 
-        log_msg(tx, &format!(
-            "📥 Existing clone is at '{current_tag}', need '{version}'. Re-cloning...\n"
-        ));
+        log_msg(
+            tx,
+            &format!("📥 Existing clone is at '{current_tag}', need '{version}'. Re-cloning...\n"),
+        );
         tokio::fs::remove_dir_all(src_dir)
             .await
             .with_context(|| format!("Failed to remove {}", src_dir.display()))?;
     }
 
-    log_msg(tx, &format!("\n📥 Cloning {} at {}...\n", repo_url, version));
-    log_msg(tx, "   (shallow clone — may take a few minutes for Bitcoin Core)\n\n");
+    log_msg(
+        tx,
+        &format!("\n📥 Cloning {} at {}...\n", repo_url, version),
+    );
+    log_msg(
+        tx,
+        "   (shallow clone — may take a few minutes for Bitcoin Core)\n\n",
+    );
 
     run_command(
         &format!(
@@ -431,10 +485,15 @@ async fn clone_or_update(
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
 fn validate_version_tag(tag: &str) -> Result<()> {
-    if tag.chars().all(|c| c.is_alphanumeric() || matches!(c, '.' | '-' | '_')) {
+    if tag
+        .chars()
+        .all(|c| c.is_alphanumeric() || matches!(c, '.' | '-' | '_'))
+    {
         Ok(())
     } else {
-        Err(anyhow::anyhow!("Version tag contains unexpected characters: {tag:?}"))
+        Err(anyhow::anyhow!(
+            "Version tag contains unexpected characters: {tag:?}"
+        ))
     }
 }
 

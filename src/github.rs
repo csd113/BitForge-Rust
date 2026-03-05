@@ -9,10 +9,8 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::sync::LazyLock;
 
-const BITCOIN_API: &str =
-    "https://api.github.com/repos/bitcoin/bitcoin/releases?per_page=30";
-const ELECTRS_API: &str =
-    "https://api.github.com/repos/romanz/electrs/releases?per_page=30";
+const BITCOIN_API: &str = "https://api.github.com/repos/bitcoin/bitcoin/releases?per_page=30";
+const ELECTRS_API: &str = "https://api.github.com/repos/romanz/electrs/releases?per_page=30";
 const MAX_VERSIONS: usize = 10;
 
 // ─── Shared HTTP client ───────────────────────────────────────────────────────
@@ -33,7 +31,7 @@ static HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
 
 #[derive(Deserialize)]
 struct GitHubRelease {
-    tag_name:   String,
+    tag_name: String,
     /// GitHub's own pre-release flag — more reliable than string matching alone.
     prerelease: bool,
 }
